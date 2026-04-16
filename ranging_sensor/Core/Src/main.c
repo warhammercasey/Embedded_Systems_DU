@@ -52,7 +52,6 @@ TIM_HandleTypeDef htim5;
 
 /* USER CODE BEGIN PV */
 
-volatile uint8_t trig_sent = 0;
 volatile uint32_t dist = 0;
 float float_dist = 0;
 
