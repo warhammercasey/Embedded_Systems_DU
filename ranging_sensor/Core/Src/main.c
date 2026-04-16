@@ -512,6 +512,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef* htim){
 	// Channel 2 is falling edge
 	// Channel 1 is rising edge
 	// Channel 2 is indirect mode and captures off channel 1
+	// Interrupt triggers on channel 2 so we know both channels have the correct captured value
 	dist = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_2) - HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
 
 }
