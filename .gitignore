@@ -1,5 +1,4 @@
 .metadata
 .settings/
-*.ld
 *.launch
 debug/
