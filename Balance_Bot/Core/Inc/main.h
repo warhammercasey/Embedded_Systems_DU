@@ -65,6 +65,7 @@ void Error_Handler(void);
 #define MT6701_MAX_PWM 42155
 #define IMU_INT_Pin GPIO_PIN_13
 #define IMU_INT_GPIO_Port GPIOC
+#define IMU_INT_EXTI_IRQn EXTI15_10_IRQn
 #define WS_DIN_Pin GPIO_PIN_0
 #define WS_DIN_GPIO_Port GPIOA
 #define MD_PWMA_Pin GPIO_PIN_1

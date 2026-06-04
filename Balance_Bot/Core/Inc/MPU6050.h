@@ -37,7 +37,7 @@ typedef struct
 	uint8_t Gyro_Full_Scale;
 	uint8_t Accel_Full_Scale;
 	uint8_t CONFIG_DLPF;
-	bool 		Sleep_Mode_Bit;
+	uint8_t Sleep_Mode_Bit;
 
 }MPU_ConfigTypeDef;
 
@@ -88,6 +88,22 @@ typedef struct
 	int16_t z;
 }Vector3;
 
+typedef struct{
+	float x;
+	float y;
+	float z;
+}Vector3f;
+
+typedef struct {
+	MPU_ConfigTypeDef config;
+	I2C_HandleTypeDef* hi2c;
+	uint8_t address;
+	Vector3 accel_offset;
+	Vector3 gyro_offset;
+	float accel_weight;
+	uint32_t calibration_count;
+
+}mpu6050_config_t;
 
 
 typedef struct{
@@ -96,18 +112,37 @@ typedef struct{
 	uint8_t address;
 	Vector3 accel_offset;
 	Vector3 gyro_offset;
+	float accel_weight;
 	float accel_scale;
 	float gyro_scale;
+	uint8_t tx_data; // Persistent byte used for dma tx
+	Vector3f current_angle;
+	Vector3f current_accel;
+	float current_temp; // C
+	uint32_t last_time;
+
+	int32_t accel_calibration_accumulator[3];
+	int32_t gyro_calibration_accumulator[3];
+	uint8_t calibrating;
+	int32_t calibration_count;
+	int32_t calibration_counter;
+	uint8_t calibration_done;
+
+	// Raw fifo data order:
+	// accel x, y, z, temp, gyro x, y, z
+	uint8_t rx_buffer[2*3*2 + 2];
 } mpu6050_t;
 
 
 uint8_t MPU6050_read_reg(mpu6050_t* inst, uint8_t addr);
 void MPU6050_write_reg(mpu6050_t* inst, uint8_t addr, uint8_t data);
 
-void MPU6050_init(mpu6050_t* inst);
+void MPU6050_init(mpu6050_t* inst, mpu6050_config_t* config);
 
 void MPU6050_rdy_isr(mpu6050_t* inst);
-void MPU6050_dma_isr(mpu6050_t* inst);
+void MPU6050_dma_rx_isr(mpu6050_t* inst);
+void MPU6050_dma_tx_isr(mpu6050_t* inst);
 
+void MPU6050_process_fifo_data(mpu6050_t* inst);
 
 #endif /* INC_MPU6050_H_ */

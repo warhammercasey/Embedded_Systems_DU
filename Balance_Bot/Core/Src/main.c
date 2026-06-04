@@ -27,7 +27,7 @@
 #include "WS2812.h"
 #include "motor.h"
 #include "usbd_cdc_if.h"
-#include "TJ_MPU6050.h"
+#include "MPU6050.h"
 
 /* USER CODE END Includes */
 
@@ -40,13 +40,15 @@
 /* USER CODE BEGIN PD */
 #define AVERAGE_COUNT 512
 
-#define ACCEL_OFFSET_Z (9762 - 8192)
-#define ACCEL_OFFSET_Y (-103)
-#define ACCEL_OFFSET_X (80)
+#define ACCEL_OFFSET_X (243)
+#define ACCEL_OFFSET_Y (-43)
+#define ACCEL_OFFSET_Z (8192 - 9732)
 
-#define GYRO_OFFSET_X (-399)
-#define GYRO_OFFSET_Y (-266)
-#define GYRO_OFFSET_Z (-22)
+#define GYRO_OFFSET_X (-420)
+#define GYRO_OFFSET_Y (-240)
+#define GYRO_OFFSET_Z (-13)
+
+#define ACCEL_WEIGHT 5
 
 /* USER CODE END PD */
 
@@ -58,6 +60,8 @@
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
 I2C_HandleTypeDef hi2c3;
+DMA_HandleTypeDef hdma_i2c1_tx;
+DMA_HandleTypeDef hdma_i2c1_rx;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
@@ -65,6 +69,7 @@ TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim5;
 
 UART_HandleTypeDef huart1;
+DMA_HandleTypeDef hdma_usart1_tx;
 
 /* USER CODE BEGIN PV */
 
@@ -73,6 +78,7 @@ UART_HandleTypeDef huart1;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_TIM5_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_I2C3_Init(void);
@@ -94,6 +100,11 @@ int32_t rot_enc_pos;
 float hall_enc_angle;
 
 motor_t motors[2];
+
+mpu6050_t mpu;
+
+uint8_t uart_rx_byte = 0;
+char uart_tx_buffer[1024];
 
 /* USER CODE END 0 */
 
@@ -126,6 +137,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_TIM5_Init();
   MX_I2C1_Init();
   MX_I2C3_Init();
@@ -135,6 +147,8 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
+
+  HAL_Delay(1000);
 
 
   // RGB Color cube vars
@@ -158,21 +172,38 @@ int main(void)
   motor_init(&(motors[1]), MD_BIN1_GPIO_Port, MD_BIN1_Pin, MD_BIN2_GPIO_Port, MD_BIN2_Pin, &htim2, 0);
 
   // MPU6050
-  MPU_ConfigTypeDef mpu_config = {
-		  .Accel_Full_Scale = AFS_SEL_4g,
-		  .CONFIG_DLPF = 6,
-		  .ClockSource = 0,
-		  .Gyro_Full_Scale = FS_SEL_500,
-		  .Sleep_Mode_Bit = 0
+  mpu6050_config_t mpu_config = {
+		  .config = {
+			  .Accel_Full_Scale = AFS_SEL_4g,
+			  .CONFIG_DLPF = 6,
+			  .ClockSource = 0,
+			  .Gyro_Full_Scale = FS_SEL_500,
+			  .Sleep_Mode_Bit = 0
+		  },
+		  .hi2c = &hi2c1,
+		  .address = MPU_ADDR,
+		  .accel_offset = {
+				  .x = ACCEL_OFFSET_X,
+				  .y = ACCEL_OFFSET_Y,
+				  .z = ACCEL_OFFSET_Z
+		  },
+		  .gyro_offset = {
+				  .x = GYRO_OFFSET_X,
+				  .y = GYRO_OFFSET_Y,
+				  .z = GYRO_OFFSET_Z
+		  },
+		  .accel_weight = ACCEL_WEIGHT,
+		  .calibration_count = 1000
   };
-  MPU6050_Init(&hi2c1);
-  MPU6050_Config(&mpu_config);
-  const uint32_t mpu6050_period = 100;
-  uint32_t mpu6050_lasttime = 0;
+  MPU6050_init(&mpu, &mpu_config);
 
-  RawData_Def gyro_samples[AVERAGE_COUNT];
-  RawData_Def accel_samples[AVERAGE_COUNT];
-  uint32_t idx = 0;
+  // UART RX
+  HAL_UART_Receive_IT(&huart1, &uart_rx_byte, 1);
+
+
+  int32_t motor_speed = 0;
+  int32_t motor_turn = 0;
+  const int32_t motor_speed_increment = 0xFFFF/8;
 
   /* USER CODE END 2 */
 
@@ -195,51 +226,43 @@ int main(void)
 		  ws2812_set_color(&ws2812, colors[0], colors[1], colors[2]);
 	  }
 
-
-	  if(now_time - mpu6050_lasttime > mpu6050_period && idx < AVERAGE_COUNT){
-		  mpu6050_lasttime = now_time;
-
-		  MPU6050_Get_Gyro_RawData(&(gyro_samples[idx]));
-		  MPU6050_Get_Accel_RawData(&(accel_samples[idx]));
-		  idx++;
-
-		  printf("Index: %lu\r\n", idx);
-
-		  if(idx >= AVERAGE_COUNT){
-			  RawData_Def averaged_gyro = {0, 0, 0};
-			  RawData_Def averaged_accel = {0, 0, 0};
-			  int32_t sum_gyro[3] = {0};
-			  int32_t sum_accel[3] = {0};
-
-			  for(int i = 0; i < AVERAGE_COUNT; i++){
-				  sum_gyro[0] += (int32_t)gyro_samples[i].x;
-				  sum_gyro[1] += (int32_t)gyro_samples[i].y;
-				  sum_gyro[2] += (int32_t)gyro_samples[i].z;
-
-				  sum_accel[0] += (int32_t)accel_samples[i].x;
-				  sum_accel[1] += (int32_t)accel_samples[i].y;
-				  sum_accel[2] += (int32_t)accel_samples[i].z;
-			  }
-
-			  averaged_gyro.x = (int16_t)(sum_gyro[0]/AVERAGE_COUNT);
-			  averaged_gyro.y = (int16_t)(sum_gyro[1]/AVERAGE_COUNT);
-			  averaged_gyro.z = (int16_t)(sum_gyro[2]/AVERAGE_COUNT);
-
-			  averaged_accel.x = (int16_t)(sum_accel[0]/AVERAGE_COUNT);
-			  averaged_accel.y = (int16_t)(sum_accel[1]/AVERAGE_COUNT);
-			  averaged_accel.z = (int16_t)(sum_accel[2]/AVERAGE_COUNT);
-
-			  printf("IMU data:\r\n");
-			  printf("\tGyro: %d, %d, %d\r\n", averaged_gyro.x, averaged_gyro.y, averaged_gyro.z);
-			  HAL_Delay(1);
-			  printf("\tAccel: %d, %d, %d\r\n", averaged_accel.x, averaged_accel.y, averaged_accel.z);
-		  }
-
-
-
+	  if(mpu.calibration_done){
+		  mpu.calibration_done = 0;
+		  printf("Calibration done!\r\n");
+		  HAL_Delay(2);
+		  printf("\tAccel accumulators: %ld, %ld, %ld\r\n", mpu.accel_calibration_accumulator[0], mpu.accel_calibration_accumulator[1], mpu.accel_calibration_accumulator[2]);
+		  HAL_Delay(2);
+		  printf("\tGyro accumulators: %ld, %ld, %ld\r\n", mpu.gyro_calibration_accumulator[0], mpu.gyro_calibration_accumulator[1], mpu.gyro_calibration_accumulator[2]);
 	  }
 
+	  if(uart_rx_byte){
+		  switch(uart_rx_byte){
+		  case 'w':
+			  motor_speed += motor_speed_increment;
+			  break;
 
+		  case 's':
+			  motor_speed -= motor_speed_increment;
+			  break;
+
+		  case 'a':
+			  motor_turn += motor_speed_increment;
+			  break;
+
+		  case 'd':
+			  motor_turn -= motor_speed_increment;
+			  break;
+
+		  case 'x':
+			  motor_turn = 0;
+			  motor_speed = 0;
+			  break;
+		  }
+
+		  uart_rx_byte = 0;
+		  set_speed(&motors[0], motor_speed - motor_turn);
+		  set_speed(&motors[1], motor_speed + motor_turn);
+	  }
 
     /* USER CODE END WHILE */
 
@@ -387,7 +410,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 4294967295;
+  htim2.Init.Period = 0xFFFF;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -632,6 +655,29 @@ static void MX_USART1_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+  __HAL_RCC_DMA2_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Stream0_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+  /* DMA1_Stream6_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
+  /* DMA2_Stream7_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream7_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream7_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -678,6 +724,10 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
 
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
@@ -711,8 +761,29 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef* htim){
 
 		hall_enc_angle = ((float)(dist - MT6701_MIN_PWM))/((float)(MT6701_MAX_PWM - MT6701_MIN_PWM))*360.0f;
 	}
-
 }
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+	MPU6050_rdy_isr(&mpu);
+}
+
+void HAL_I2C_MasterTxCpltCallback(I2C_HandleTypeDef *hi2c){
+	MPU6050_dma_tx_isr(&mpu);
+}
+
+void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c){
+	MPU6050_dma_rx_isr(&mpu);
+}
+
+// UART receive complete callback function to control the robot based on received byte
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART1)
+    {
+        HAL_UART_Receive_IT(&huart1, &uart_rx_byte, 1);
+    }
+}
+
 /* USER CODE END 4 */
 
 /**

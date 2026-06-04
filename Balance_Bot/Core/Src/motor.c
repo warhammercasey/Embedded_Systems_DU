@@ -38,7 +38,7 @@ void set_speed(motor_t* inst, int32_t speed){
 		HAL_GPIO_WritePin(inst->dir_pins[dir_pin].port, inst->dir_pins[dir_pin].pin, 1);
 		HAL_GPIO_WritePin(inst->dir_pins[!dir_pin].port, inst->dir_pins[!dir_pin].pin, 0);
 
-		(&(inst->htim->Instance->CCR1))[inst->channel] = ((uint32_t)ABS(speed)) << 1;
+		(&(inst->htim->Instance->CCR1))[inst->channel] = ((uint32_t)ABS(speed));
 
 	}
 }
