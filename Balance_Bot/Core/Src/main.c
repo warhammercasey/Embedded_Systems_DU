@@ -148,9 +148,6 @@ int main(void)
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
 
-  HAL_Delay(1000);
-
-
   // RGB Color cube vars
   const uint32_t color_cube_period = 10; // ms
   uint32_t color_cube_lasttime = 0;
@@ -170,6 +167,7 @@ int main(void)
   // Motors
   motor_init(&(motors[0]), MD_AIN1_GPIO_Port, MD_AIN1_Pin, MD_AIN2_GPIO_Port, MD_AIN2_Pin, &htim2, 1);
   motor_init(&(motors[1]), MD_BIN1_GPIO_Port, MD_BIN1_Pin, MD_BIN2_GPIO_Port, MD_BIN2_Pin, &htim2, 0);
+  HAL_GPIO_WritePin(MD_STBY_GPIO_Port, MD_STBY_Pin, 1);
 
   // MPU6050
   mpu6050_config_t mpu_config = {
@@ -205,6 +203,10 @@ int main(void)
   int32_t motor_turn = 0;
   const int32_t motor_speed_increment = 0xFFFF/8;
 
+  uint32_t last_telem_time = 0;
+  int16_t telem_counter = 0;
+  const uint32_t telem_period = 250;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -233,6 +235,23 @@ int main(void)
 		  printf("\tAccel accumulators: %ld, %ld, %ld\r\n", mpu.accel_calibration_accumulator[0], mpu.accel_calibration_accumulator[1], mpu.accel_calibration_accumulator[2]);
 		  HAL_Delay(2);
 		  printf("\tGyro accumulators: %ld, %ld, %ld\r\n", mpu.gyro_calibration_accumulator[0], mpu.gyro_calibration_accumulator[1], mpu.gyro_calibration_accumulator[2]);
+	  }
+
+
+	  if(now_time - last_telem_time > telem_period){
+		  last_telem_time = now_time;
+
+		  float speed = 0;
+		  float roll = 	mpu.current_angle.x;
+		  float pitch = mpu.current_angle.y;
+
+	      int len = snprintf(uart_tx_buffer, sizeof(uart_tx_buffer),
+	                         "$%.2f,%.2f,%.2f,%d\r\n",
+	                         speed, roll, pitch, telem_counter);
+	      HAL_UART_Transmit_IT(&huart1, (uint8_t*)uart_tx_buffer, len);
+
+	      telem_counter++;
+
 	  }
 
 	  if(uart_rx_byte){
