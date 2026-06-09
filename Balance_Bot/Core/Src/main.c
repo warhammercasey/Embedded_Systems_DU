@@ -165,8 +165,8 @@ int main(void)
   HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_2);
 
   // Motors
-  motor_init(&(motors[0]), MD_AIN1_GPIO_Port, MD_AIN1_Pin, MD_AIN2_GPIO_Port, MD_AIN2_Pin, &htim2, 1);
-  motor_init(&(motors[1]), MD_BIN1_GPIO_Port, MD_BIN1_Pin, MD_BIN2_GPIO_Port, MD_BIN2_Pin, &htim2, 0);
+  motor_init(&(motors[0]), MD_AIN1_GPIO_Port, MD_AIN1_Pin, MD_AIN2_GPIO_Port, MD_AIN2_Pin, &htim2, 1, 0);
+  motor_init(&(motors[1]), MD_BIN1_GPIO_Port, MD_BIN1_Pin, MD_BIN2_GPIO_Port, MD_BIN2_Pin, &htim2, 0, 1);
   HAL_GPIO_WritePin(MD_STBY_GPIO_Port, MD_STBY_Pin, 1);
 
   // MPU6050
@@ -201,7 +201,7 @@ int main(void)
 
   int32_t motor_speed = 0;
   int32_t motor_turn = 0;
-  const int32_t motor_speed_increment = 0xFFFF/8;
+  const int32_t motor_speed_increment = 0x7FFF;
 
   uint32_t last_telem_time = 0;
   int16_t telem_counter = 0;

@@ -9,7 +9,7 @@
 
 #define ABS(x) ((x > 0) ? (x) : (-x))
 
-void motor_init(motor_t* inst, GPIO_TypeDef* port_a, uint16_t pin_a, GPIO_TypeDef* port_b, uint16_t pin_b, TIM_HandleTypeDef* htim, uint16_t channel){
+void motor_init(motor_t* inst, GPIO_TypeDef* port_a, uint16_t pin_a, GPIO_TypeDef* port_b, uint16_t pin_b, TIM_HandleTypeDef* htim, uint16_t channel, uint8_t inverted){
 	inst->dir_pins[0].port = port_a;
 	inst->dir_pins[0].pin = pin_a;
 
@@ -20,6 +20,7 @@ void motor_init(motor_t* inst, GPIO_TypeDef* port_a, uint16_t pin_a, GPIO_TypeDe
 	inst->channel = channel;
 
 	inst->speed = 0;
+	inst->inverted = inverted;
 
 	uint32_t channels[] = {TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3, TIM_CHANNEL_4};
 	HAL_TIM_PWM_Start(htim, channels[channel]);
@@ -34,7 +35,7 @@ void set_speed(motor_t* inst, int32_t speed){
 		(&(inst->htim->Instance->CCR1))[inst->channel] = 0;
 
 	} else{
-		uint8_t dir_pin = speed < 0;
+		uint8_t dir_pin = (speed < 0) != inst->inverted;
 		HAL_GPIO_WritePin(inst->dir_pins[dir_pin].port, inst->dir_pins[dir_pin].pin, 1);
 		HAL_GPIO_WritePin(inst->dir_pins[!dir_pin].port, inst->dir_pins[!dir_pin].pin, 0);
 
